@@ -120,6 +120,9 @@ const App = {
           { id:'grades', icon:'🏆', label:'成绩查看' },
           { id:'stats', icon:'📊', label:'学习统计' },
         ]},
+        { section:'行政', items:[
+          { id:'leave', icon:'📋', label:'请假管理' },
+        ]},
       ],
       teacher: [
         { section:'教学', items:[
@@ -130,6 +133,9 @@ const App = {
         { section:'管理', items:[
           { id:'students', icon:'👥', label:'学生管理' },
           { id:'announcements', icon:'📢', label:'发布公告' },
+        ]},
+        { section:'行政', items:[
+          { id:'leave', icon:'📋', label:'请假审批' },
         ]},
       ],
       admin: [
@@ -244,7 +250,8 @@ const App = {
       pomodoro:'番茄钟', checkin:'每日打卡', materials:'学习资料',
       assignments:'课程作业', grades:'成绩查看', stats:'学习统计',
       students:'学生管理', announcements:'发布公告',
-      users:'用户管理', config:'系统配置', audit:'审计日志' };
+      users:'用户管理', config:'系统配置', audit:'审计日志',
+      leave:'请假管理' };
     document.getElementById('page-title').textContent = titles[page] || page;
 
     const renderers = {
@@ -263,6 +270,7 @@ const App = {
       users: () => this.renderUsers(),
       config: () => this.renderConfig(),
       audit: () => this.renderAudit(),
+      leave: () => this.renderLeave(),
     };
     const content = document.getElementById('page-content');
     if (renderers[page]) { renderers[page](); }
@@ -1433,6 +1441,179 @@ const App = {
         </table></div>` : '<div class="empty-state"><h3>暂无日志</h3></div>'}
       </div>`;
     document.getElementById('page-content').innerHTML = html;
+  },
+
+  /* ==================== LEAVE MANAGEMENT ==================== */
+  renderLeave() {
+    const user = this.state.user;
+    if (user.role === 'student') this.renderStudentLeave();
+    else if (user.role === 'teacher') this.renderTeacherLeave();
+    else if (user.role === 'admin') this.renderAdminLeave();
+  },
+
+  renderStudentLeave() {
+    const user = this.state.user;
+    const leaves = DB.get('leaveRequests').filter(l => l.student_id === user.id).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    const statusMap = { pending:'待审批', approved:'已批准', rejected:'已拒绝' };
+    const typeMap = { sick:'病假', personal:'事假', other:'其他' };
+    const statusClass = { pending:'warning', approved:'success', rejected:'danger' };
+
+    document.getElementById('page-content').innerHTML = `
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header"><h3>📋 提交请假申请</h3></div>
+        <div class="card-body">
+          <div class="form-row">
+            <div class="form-group"><label>请假类型</label><select id="leave-type"><option value="sick">病假</option><option value="personal">事假</option><option value="other">其他</option></select></div>
+            <div class="form-group"><label>关联课程（选填）</label><select id="leave-course"><option value="">不关联</option>${DB.find('enrollments', e => e.student_id === user.id && e.status === 'approved').map(e => { const c = DB.findOne('courses', x => x.id === e.course_id); return c ? `<option value="${c.id}">${c.name}</option>` : ''; }).join('')}</select></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label>开始日期</label><input type="date" id="leave-start"></div>
+            <div class="form-group"><label>结束日期</label><input type="date" id="leave-end"></div>
+          </div>
+          <div class="form-group"><label>请假原因</label><textarea id="leave-reason" rows="3" style="width:100%;padding:12px;border:2px solid var(--gray-200);border-radius:8px;resize:vertical" placeholder="请说明请假原因..."></textarea></div>
+          <button class="btn btn-primary" onclick="App.submitLeave()">提交申请</button>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><h3>📋 我的请假记录 (${leaves.length})</h3></div>
+        ${leaves.length ? `<div class="table-wrap"><table>
+          <tr><th>类型</th><th>日期范围</th><th>原因</th><th>状态</th><th>审批意见</th><th>提交时间</th></tr>
+          ${leaves.map(l => {
+            const course = l.course_id ? DB.findOne('courses', c => c.id === l.course_id) : null;
+            return `<tr>
+              <td>${typeMap[l.type] || l.type}</td>
+              <td>${l.start_date?.slice(0,10)} ~ ${l.end_date?.slice(0,10)}</td>
+              <td>${l.reason}${course ? '<br><span style="font-size:.78rem;color:var(--gray-400)">课程：' + course.name + '</span>' : ''}</td>
+              <td><span class="status-badge ${statusClass[l.status]}">${statusMap[l.status] || l.status}</span></td>
+              <td>${l.comment || '-'}</td>
+              <td>${l.created_at?.slice(0,10) || ''}</td>
+            </tr>`;
+          }).join('')}
+        </table></div>` : '<div class="empty-state"><div class="icon">📋</div><p>暂无请假记录</p></div>'}
+      </div>`;
+  },
+
+  submitLeave() {
+    const start = document.getElementById('leave-start')?.value;
+    const end = document.getElementById('leave-end')?.value;
+    const reason = document.getElementById('leave-reason')?.value.trim();
+    const type = document.getElementById('leave-type')?.value;
+    const courseId = parseInt(document.getElementById('leave-course')?.value) || null;
+    if (!start || !end) { this.toast('请选择请假日期', 'error'); return; }
+    if (!reason) { this.toast('请填写请假原因', 'error'); return; }
+    if (new Date(end) < new Date(start)) { this.toast('结束日期不能早于开始日期', 'error'); return; }
+    DB.addLeaveRequest(this.state.user.id, { start_date: start, end_date: end, reason, type, course_id: courseId });
+    this.toast('请假申请已提交', 'success');
+    this.renderStudentLeave();
+  },
+
+  renderTeacherLeave() {
+    const user = this.state.user;
+    const myCourseIds = DB.get('courses').filter(c => c.teacher_id === user.id).map(c => c.id);
+    const leaves = DB.get('leaveRequests').filter(l => l.status === 'pending' && (!l.course_id || myCourseIds.includes(l.course_id))).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    const allLeaves = DB.get('leaveRequests').filter(l => !l.course_id || myCourseIds.includes(l.course_id)).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    const typeMap = { sick:'病假', personal:'事假', other:'其他' };
+    const statusMap = { pending:'待审批', approved:'已批准', rejected:'已拒绝' };
+    const statusClass = { pending:'warning', approved:'success', rejected:'danger' };
+
+    document.getElementById('page-content').innerHTML = `
+      ${leaves.length ? `<div class="card" style="margin-bottom:16px">
+        <div class="card-header"><h3>⏳ 待审批 (${leaves.length})</h3></div>
+        <div class="card-body">${leaves.map(l => {
+          const s = DB.findOne('users', u => u.id === l.student_id);
+          const c = l.course_id ? DB.findOne('courses', x => x.id === l.course_id) : null;
+          return `<div style="padding:14px;border:1px solid var(--border-color);border-radius:8px;margin-bottom:10px">
+            <div style="display:flex;justify-content:space-between;align-items:start">
+              <div><strong>${s?.nickname || '未知'}</strong> · ${typeMap[l.type] || l.type} · ${l.start_date?.slice(0,10)} ~ ${l.end_date?.slice(0,10)}${c ? '<br><span style="font-size:.82rem;color:var(--gray-500)">课程：' + c.name + '</span>' : ''}</div>
+              <span class="status-badge warning">待审批</span>
+            </div>
+            <p style="margin-top:8px;font-size:.9rem;color:var(--gray-600);background:var(--gray-50);padding:10px;border-radius:6px">${l.reason}</p>
+            <div style="display:flex;gap:8px;margin-top:10px;align-items:center">
+              <input id="leave-comment-${l.id}" placeholder="审批意见（选填）" style="flex:1;padding:8px 12px;border:2px solid var(--gray-200);border-radius:6px;font-size:.85rem">
+              <button class="btn btn-success btn-sm" onclick="App.approveLeave(${l.id})">✓ 批准</button>
+              <button class="btn btn-danger btn-sm" onclick="App.rejectLeave(${l.id})">✗ 拒绝</button>
+            </div>
+          </div>`;
+        }).join('')}</div>
+      </div>` : ''}
+      <div class="card">
+        <div class="card-header"><h3>📋 全部请假记录</h3></div>
+        ${allLeaves.length ? `<div class="table-wrap"><table>
+          <tr><th>学生</th><th>类型</th><th>日期</th><th>原因</th><th>状态</th><th>审批意见</th></tr>
+          ${allLeaves.map(l => {
+            const s = DB.findOne('users', u => u.id === l.student_id);
+            return `<tr>
+              <td>${s?.nickname || '未知'}</td>
+              <td>${typeMap[l.type] || l.type}</td>
+              <td>${l.start_date?.slice(0,10)} ~ ${l.end_date?.slice(0,10)}</td>
+              <td>${l.reason}</td>
+              <td><span class="status-badge ${statusClass[l.status]}">${statusMap[l.status] || l.status}</span></td>
+              <td>${l.comment || '-'}</td>
+            </tr>`;
+          }).join('')}
+        </table></div>` : '<div class="empty-state"><div class="icon">📋</div><p>暂无记录</p></div>'}
+      </div>`;
+  },
+
+  renderAdminLeave() {
+    const leaves = DB.get('leaveRequests').sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    const pending = leaves.filter(l => l.status === 'pending');
+    const typeMap = { sick:'病假', personal:'事假', other:'其他' };
+    const statusMap = { pending:'待审批', approved:'已批准', rejected:'已拒绝' };
+    const statusClass = { pending:'warning', approved:'success', rejected:'danger' };
+
+    document.getElementById('page-content').innerHTML = `
+      <div class="card" style="margin-bottom:16px">
+        <div class="card-header"><h3>⏳ 待审批 (${pending.length})</h3></div>
+        <div class="card-body">${pending.length ? pending.map(l => {
+          const s = DB.findOne('users', u => u.id === l.student_id);
+          return `<div style="padding:14px;border:1px solid var(--border-color);border-radius:8px;margin-bottom:10px">
+            <div style="display:flex;justify-content:space-between;align-items:start">
+              <div><strong>${s?.nickname || '未知'}</strong> · ${typeMap[l.type] || l.type} · ${l.start_date?.slice(0,10)} ~ ${l.end_date?.slice(0,10)}</div>
+              <span class="status-badge warning">待审批</span>
+            </div>
+            <p style="margin:8px 0;font-size:.9rem;color:var(--gray-600);background:var(--gray-50);padding:10px;border-radius:6px">${l.reason}</p>
+            <div style="display:flex;gap:8px;align-items:center">
+              <input id="aleave-comment-${l.id}" placeholder="审批意见（选填）" style="flex:1;padding:8px 12px;border:2px solid var(--gray-200);border-radius:6px;font-size:.85rem">
+              <button class="btn btn-success btn-sm" onclick="App.approveLeave(${l.id})">✓ 批准</button>
+              <button class="btn btn-danger btn-sm" onclick="App.rejectLeave(${l.id})">✗ 拒绝</button>
+            </div>
+          </div>`;
+        }).join('') : '<div class="empty-state" style="padding:20px"><div class="icon">✅</div><p>没有待审批的申请</p></div>'}</div>
+      </div>
+      <div class="card">
+        <div class="card-header"><h3>📋 全部请假记录 (${leaves.length})</h3></div>
+        ${leaves.length ? `<div class="table-wrap"><table>
+          <tr><th>学生</th><th>类型</th><th>日期</th><th>原因</th><th>状态</th><th>审批意见</th><th>审批人</th></tr>
+          ${leaves.map(l => {
+            const s = DB.findOne('users', u => u.id === l.student_id);
+            const ap = l.approver_id ? DB.findOne('users', u => u.id === l.approver_id) : null;
+            return `<tr>
+              <td>${s?.nickname || '未知'}</td>
+              <td>${typeMap[l.type] || l.type}</td>
+              <td>${l.start_date?.slice(0,10)} ~ ${l.end_date?.slice(0,10)}</td>
+              <td>${l.reason}</td>
+              <td><span class="status-badge ${statusClass[l.status]}">${statusMap[l.status] || l.status}</span></td>
+              <td>${l.comment || '-'}</td>
+              <td>${ap?.nickname || '-'}</td>
+            </tr>`;
+          }).join('')}
+        </table></div>` : '<div class="empty-state"><div class="icon">📋</div><p>暂无记录</p></div>'}
+      </div>`;
+  },
+
+  approveLeave(id) {
+    const comment = document.getElementById('leave-comment-' + id)?.value.trim() || document.getElementById('aleave-comment-' + id)?.value.trim() || '';
+    DB.approveLeaveRequest(id, this.state.user.id, comment);
+    this.toast('已批准', 'success');
+    this.renderLeave();
+  },
+
+  rejectLeave(id) {
+    const comment = document.getElementById('leave-comment-' + id)?.value.trim() || document.getElementById('aleave-comment-' + id)?.value.trim() || '';
+    DB.rejectLeaveRequest(id, this.state.user.id, comment);
+    this.toast('已拒绝', 'info');
+    this.renderLeave();
   },
 
   /* ==================== THEME ==================== */

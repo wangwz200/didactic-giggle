@@ -88,6 +88,10 @@ const DB = {
       { id:3, user_id:1, title:'线性表操作即将截止', content:'距离作业截止还有不到 2 天，请尽快提交。', type:'assignment', related_id:3, is_read:0, created_at:new Date(Date.now() - 86400000).toISOString() },
       { id:4, user_id:1, title:'下周考试通知', content:'第一章单元测验将于下周三进行，请做好准备。', type:'course', related_id:1, is_read:0, created_at:new Date(Date.now() - 172800000).toISOString() },
     ];
+    const leaveRequests = [
+      { id:1, student_id:1, course_id:1, type:'sick', start_date:new Date(Date.now() + 86400000).toISOString().slice(0,10), end_date:new Date(Date.now() + 172800000).toISOString().slice(0,10), reason:'感冒发烧，需要休息两天', status:'pending', approver_id:null, comment:'', created_at:new Date(Date.now() - 86400000).toISOString(), updated_at:new Date(Date.now() - 86400000).toISOString() },
+      { id:2, student_id:1, course_id:null, type:'personal', start_date:new Date(Date.now() + 259200000).toISOString().slice(0,10), end_date:new Date(Date.now() + 345600000).toISOString().slice(0,10), reason:'家里有急事需要处理', status:'approved', approver_id:2, comment:'同意，注意安全', created_at:new Date(Date.now() - 172800000).toISOString(), updated_at:new Date(Date.now() - 86400000).toISOString() },
+    ];
     this._set('inited', true);
     this._set('users', users); this._set('courses', courses); this._set('enrollments', enrollments);
     this._set('assignments', assignments); this._set('submissions', submissions); this._set('grades', grades);
@@ -96,6 +100,7 @@ const DB = {
     this._set('dailyStats', dailyStats); this._set('announcements', announcements);
     this._set('auditLogs', auditLogs); this._set('systemConfigs', configs);
     this._set('notifications', notifications);
+    this._set('leaveRequests', leaveRequests);
   },
 
   auth: {
@@ -170,5 +175,26 @@ const DB = {
     const arr = DB._get('notifications') || [];
     arr.forEach(n => { if (n.user_id === userId) n.is_read = 1; });
     DB._set('notifications', arr);
+  },
+
+  addLeaveRequest(studentId, data) {
+    const arr = DB._get('leaveRequests') || [];
+    const id = Math.max(...arr.map(x=>x.id||0), 0) + 1;
+    const item = { id, student_id: studentId, course_id: data.course_id || null, type: data.type || 'other', start_date: data.start_date, end_date: data.end_date, reason: data.reason, status: 'pending', approver_id: null, comment: '', created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+    arr.push(item); DB._set('leaveRequests', arr);
+    DB.addNotification(studentId, '请假申请已提交', '你的请假申请已提交，等待审批。', 'system', id);
+    return item;
+  },
+
+  approveLeaveRequest(id, approverId, comment) {
+    const item = DB.update('leaveRequests', id, { status: 'approved', approver_id: approverId, comment: comment || '已批准' });
+    if (item) DB.addNotification(item.student_id, '请假已批准', '你的请假申请已被批准' + (comment ? '，审批意见：' + comment : '') + '。', 'system', id);
+    return item;
+  },
+
+  rejectLeaveRequest(id, approverId, comment) {
+    const item = DB.update('leaveRequests', id, { status: 'rejected', approver_id: approverId, comment: comment || '未通过' });
+    if (item) DB.addNotification(item.student_id, '请假未通过', '你的请假申请未通过' + (comment ? '，原因：' + comment : '') + '。', 'system', id);
+    return item;
   }
 };
