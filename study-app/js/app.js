@@ -148,6 +148,9 @@ const App = {
           { id:'config', icon:'⚙️', label:'系统配置' },
           { id:'audit', icon:'📜', label:'审计日志' },
         ]},
+        { section:'行政', items:[
+          { id:'leave', icon:'📋', label:'请假管理' },
+        ]},
       ]
     };
 
