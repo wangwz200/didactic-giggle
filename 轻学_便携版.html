@@ -328,9 +328,24 @@ tr:hover td { background: var(--gray-50); }
   _set(key, val) { localStorage.setItem('studyapp_' + key, JSON.stringify(val)); return val; },
 
   init() {
-    if (this._get('inited')) return;
     const now = new Date();
     const today = now.toISOString().slice(0,10);
+    const dataVer = this._get('dataVer') || 0;
+    if (dataVer >= 2) return;
+
+    // migration from v1 to v2: add leaveRequests without overwriting existing data
+    if (dataVer === 1) {
+      const existing = this._get('leaveRequests');
+      if (!existing) {
+        this._set('leaveRequests', [
+          { id:1, student_id:1, course_id:1, type:'sick', start_date:new Date(Date.now() + 86400000).toISOString().slice(0,10), end_date:new Date(Date.now() + 172800000).toISOString().slice(0,10), reason:'感冒发烧，需要休息两天', status:'pending', approver_id:null, comment:'', created_at:new Date(Date.now() - 86400000).toISOString(), updated_at:new Date(Date.now() - 86400000).toISOString() },
+          { id:2, student_id:1, course_id:null, type:'personal', start_date:new Date(Date.now() + 259200000).toISOString().slice(0,10), end_date:new Date(Date.now() + 345600000).toISOString().slice(0,10), reason:'家里有急事需要处理', status:'approved', approver_id:2, comment:'同意，注意安全', created_at:new Date(Date.now() - 172800000).toISOString(), updated_at:new Date(Date.now() - 86400000).toISOString() },
+        ]);
+      }
+      this._set('dataVer', 2);
+      return;
+    }
+
     const users = [
       { id:1, email:'student@test.com', password:'123456', role:'student', nickname:'张同学', avatar:'', bio:'好好学习天天向上', student_id:'2024001', department:'计算机学院', settings:{}, created_at:'2024-01-01T00:00:00Z' },
       { id:2, email:'teacher@test.com', password:'123456', role:'teacher', nickname:'李老师', avatar:'', bio:'认真教学', teacher_title:'副教授', department:'计算机学院', settings:{}, created_at:'2024-01-01T00:00:00Z' },
@@ -417,7 +432,7 @@ tr:hover td { background: var(--gray-50); }
       { id:1, student_id:1, course_id:1, type:'sick', start_date:new Date(Date.now() + 86400000).toISOString().slice(0,10), end_date:new Date(Date.now() + 172800000).toISOString().slice(0,10), reason:'感冒发烧，需要休息两天', status:'pending', approver_id:null, comment:'', created_at:new Date(Date.now() - 86400000).toISOString(), updated_at:new Date(Date.now() - 86400000).toISOString() },
       { id:2, student_id:1, course_id:null, type:'personal', start_date:new Date(Date.now() + 259200000).toISOString().slice(0,10), end_date:new Date(Date.now() + 345600000).toISOString().slice(0,10), reason:'家里有急事需要处理', status:'approved', approver_id:2, comment:'同意，注意安全', created_at:new Date(Date.now() - 172800000).toISOString(), updated_at:new Date(Date.now() - 86400000).toISOString() },
     ];
-    this._set('inited', true);
+    this._set('dataVer', 2);
     this._set('users', users); this._set('courses', courses); this._set('enrollments', enrollments);
     this._set('assignments', assignments); this._set('submissions', submissions); this._set('grades', grades);
     this._set('notes', notes); this._set('notebooks', notebooks); this._set('tasks', tasks);
