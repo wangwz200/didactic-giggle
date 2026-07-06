@@ -331,12 +331,14 @@ tr:hover td { background: var(--gray-50); }
     const now = new Date();
     const today = now.toISOString().slice(0,10);
     const dataVer = this._get('dataVer') || 0;
+    const hadOldData = !!this._get('inited');
+
+    // already at latest version
     if (dataVer >= 2) return;
 
-    // migration from v1 to v2: add leaveRequests without overwriting existing data
-    if (dataVer === 1) {
-      const existing = this._get('leaveRequests');
-      if (!existing) {
+    // migration from v1 to v2: just add leaveRequests table
+    if (dataVer === 1 || (dataVer === 0 && hadOldData)) {
+      if (!this._get('leaveRequests')) {
         this._set('leaveRequests', [
           { id:1, student_id:1, course_id:1, type:'sick', start_date:new Date(Date.now() + 86400000).toISOString().slice(0,10), end_date:new Date(Date.now() + 172800000).toISOString().slice(0,10), reason:'感冒发烧，需要休息两天', status:'pending', approver_id:null, comment:'', created_at:new Date(Date.now() - 86400000).toISOString(), updated_at:new Date(Date.now() - 86400000).toISOString() },
           { id:2, student_id:1, course_id:null, type:'personal', start_date:new Date(Date.now() + 259200000).toISOString().slice(0,10), end_date:new Date(Date.now() + 345600000).toISOString().slice(0,10), reason:'家里有急事需要处理', status:'approved', approver_id:2, comment:'同意，注意安全', created_at:new Date(Date.now() - 172800000).toISOString(), updated_at:new Date(Date.now() - 86400000).toISOString() },
