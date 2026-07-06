@@ -82,6 +82,12 @@ const DB = {
       { id:3, config_key:'max_file_size_mb', config_value:'50', description:'上传文件大小上限(MB)' },
       { id:4, config_key:'allowed_file_types', config_value:'["pdf","docx","jpg","png","pptx"]', description:'允许上传的文件类型' },
     ];
+    const notifications = [
+      { id:1, user_id:1, title:'欢迎使用轻学 🎉', content:'欢迎加入轻学学习平台，祝你学习愉快！', type:'system', related_id:null, is_read:0, created_at:new Date(Date.now() - 3600000).toISOString() },
+      { id:2, user_id:1, title:'高数第一章作业已批改', content:'你的作业获得 88 分（满分100），查看评语了解详情。', type:'grade', related_id:1, is_read:0, created_at:new Date(Date.now() - 7200000).toISOString() },
+      { id:3, user_id:1, title:'线性表操作即将截止', content:'距离作业截止还有不到 2 天，请尽快提交。', type:'assignment', related_id:3, is_read:0, created_at:new Date(Date.now() - 86400000).toISOString() },
+      { id:4, user_id:1, title:'下周考试通知', content:'第一章单元测验将于下周三进行，请做好准备。', type:'course', related_id:1, is_read:0, created_at:new Date(Date.now() - 172800000).toISOString() },
+    ];
     this._set('inited', true);
     this._set('users', users); this._set('courses', courses); this._set('enrollments', enrollments);
     this._set('assignments', assignments); this._set('submissions', submissions); this._set('grades', grades);
@@ -89,6 +95,7 @@ const DB = {
     this._set('pomodoro', pomodoro); this._set('checkins', checkins); this._set('materials', materials);
     this._set('dailyStats', dailyStats); this._set('announcements', announcements);
     this._set('auditLogs', auditLogs); this._set('systemConfigs', configs);
+    this._set('notifications', notifications);
   },
 
   auth: {
@@ -137,5 +144,31 @@ const DB = {
   getNextId(table) {
     const arr = DB._get(table) || [];
     return Math.max(...arr.map(x=>x.id||0), 0) + 1;
+  },
+
+  getNotifications(userId) {
+    return (DB._get('notifications') || []).filter(n => n.user_id === userId).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+  },
+
+  getUnreadCount(userId) {
+    return (DB._get('notifications') || []).filter(n => n.user_id === userId && !n.is_read).length;
+  },
+
+  addNotification(userId, title, content, type, relatedId) {
+    const arr = DB._get('notifications') || [];
+    const id = Math.max(...arr.map(x=>x.id||0), 0) + 1;
+    arr.push({ id, user_id: userId, title, content, type: type || 'system', related_id: relatedId || null, is_read: 0, created_at: new Date().toISOString() });
+    DB._set('notifications', arr);
+    return id;
+  },
+
+  markNotifRead(id) {
+    DB.update('notifications', id, { is_read: 1 });
+  },
+
+  markAllNotifRead(userId) {
+    const arr = DB._get('notifications') || [];
+    arr.forEach(n => { if (n.user_id === userId) n.is_read = 1; });
+    DB._set('notifications', arr);
   }
 };

@@ -189,6 +189,9 @@ const App = {
             <h1 id="page-title">首页概览</h1>
             <div class="topbar-actions">
               <span style="font-size:.85rem;color:var(--gray-500)">${user.email}</span>
+              <button class="notif-btn" onclick="App.toggleNotifications()" id="notif-btn" title="通知">
+                🔔<span id="notif-badge" class="badge-dot" style="display:none">0</span>
+              </button>
               <button class="btn btn-outline btn-sm" onclick="App.toggleTheme()" id="theme-btn" title="切换深色模式">🌙</button>
               <button class="btn btn-outline btn-sm" onclick="App.logout()">退出</button>
             </div>
@@ -198,6 +201,13 @@ const App = {
       </div>
       <div class="toast-container" id="toast-container"></div>
       <div class="modal-overlay" id="modal-overlay"><div class="modal" id="modal-content"></div></div>
+      <div class="notif-panel" id="notif-panel">
+        <div class="notif-header">
+          <h4>🔔 通知</h4>
+          <button class="btn-text" onclick="App.markAllNotifRead()">全部已读</button>
+        </div>
+        <div class="notif-list" id="notif-list"></div>
+      </div>
     `;
 
     this.initTheme();
@@ -205,6 +215,7 @@ const App = {
     this.bindGlobalEvents();
     this.initShortcuts();
     this.checkNotifications();
+    this.updateNotifBadge();
   },
 
   toggleSidebar() {
@@ -215,6 +226,13 @@ const App = {
     document.getElementById('modal-overlay').onclick = function(e) {
       if (e.target === this) this.classList.remove('show');
     };
+    document.addEventListener('click', (e) => {
+      const panel = document.getElementById('notif-panel');
+      const btn = document.getElementById('notif-btn');
+      if (panel && panel.classList.contains('show') && !panel.contains(e.target) && btn !== e.target && !btn.contains(e.target)) {
+        panel.classList.remove('show');
+      }
+    });
   },
 
   navigate(page) {
@@ -1136,8 +1154,9 @@ const App = {
       due_date: document.getElementById('assign-due').value ? new Date(document.getElementById('assign-due').value).toISOString() : null,
     };
     if (!data.title) { this.toast('请输入作业标题', 'error'); return; }
+    let isNew = false;
     if (id) { DB.update('assignments', id, data); this.toast('作业已更新', 'success'); }
-    else { DB.add('assignments', { ...data, teacher_id:this.state.user.id, type:'essay', status:'draft', created_at:new Date().toISOString(), updated_at:new Date().toISOString() }); this.toast('作业已创建', 'success'); }
+    else { const newA = DB.add('assignments', { ...data, teacher_id:this.state.user.id, type:'essay', status:'draft', created_at:new Date().toISOString(), updated_at:new Date().toISOString() }); this.toast('作业已创建', 'success'); isNew = true; if (data.status === 'published') this.notifyNewAssignment(newA.id); }
     this.hideModal(); this.renderAssignments();
   },
 
@@ -1145,6 +1164,7 @@ const App = {
     const a = DB.findOne('assignments', x => x.id === id);
     const newStatus = a?.status === 'published' ? 'draft' : 'published';
     DB.update('assignments', id, { status: newStatus });
+    if (newStatus === 'published') this.notifyNewAssignment(id);
     this.toast(`作业已${newStatus==='published'?'发布':'关闭'}`,'success');
     this.renderAssignments();
   },
@@ -1188,6 +1208,7 @@ const App = {
     if (!sub) return;
     DB.add('grades', { type:'assignment', assignment_id:assignmentId, course_id:courseId, student_id:sub.student_id, submission_id:submissionId, score, comment, graded_by:this.state.user.id, graded_at:new Date().toISOString() });
     DB.update('submissions', submissionId, { status: 'graded' });
+    DB.addNotification(sub.student_id, '作业已批改：' + (a?.title || ''), '你的作业已批改，得分：' + score + '/' + (a?.full_score || 100) + (comment ? ' · 评语：' + comment : ''), 'grade', assignmentId);
     this.toast(`已评分：${score}分`, 'success');
     this.gradeAssignment(assignmentId);
   },
@@ -1530,6 +1551,67 @@ const App = {
       }
     });
     localStorage.setItem('studyapp_notified', JSON.stringify(notified));
+  },
+
+  /* ==================== NOTIFICATION CENTER ==================== */
+  toggleNotifications() {
+    const panel = document.getElementById('notif-panel');
+    if (!panel) return;
+    panel.classList.toggle('show');
+    if (panel.classList.contains('show')) this.renderNotifList();
+  },
+
+  renderNotifList() {
+    const user = this.state.user;
+    if (!user) return;
+    const list = document.getElementById('notif-list');
+    const notifs = DB.getNotifications(user.id);
+    if (!notifs.length) {
+      list.innerHTML = '<div class="notif-empty">暂无通知</div>';
+      return;
+    }
+    list.innerHTML = notifs.map(n => `
+      <div class="notif-item ${n.is_read ? '' : 'unread'}" onclick="App.clickNotification(${n.id})">
+        <div class="notif-icon" style="background:${n.type==='system'?'var(--primary-light)':n.type==='grade'?'#dcfce7':n.type==='assignment'?'#fef3c7':'#dbeafe'}">
+          ${n.type==='system'?'📢':n.type==='grade'?'🏆':n.type==='assignment'?'⏰':'📚'}
+        </div>
+        <div class="notif-body">
+          <div class="notif-title">${!n.is_read ? '<span class="unread-dot"></span>' : ''}${n.title}</div>
+          <div class="notif-preview">${n.content}</div>
+          <div class="notif-time">${new Date(n.created_at).toLocaleString()}</div>
+        </div>
+      </div>
+    `).join('');
+    this.updateNotifBadge();
+  },
+
+  clickNotification(id) {
+    DB.markNotifRead(id);
+    this.renderNotifList();
+    this.updateNotifBadge();
+  },
+
+  markAllNotifRead() {
+    if (!this.state.user) return;
+    DB.markAllNotifRead(this.state.user.id);
+    this.renderNotifList();
+    this.updateNotifBadge();
+    this.toast('已全部标记为已读', 'info');
+  },
+
+  updateNotifBadge() {
+    const badge = document.getElementById('notif-badge');
+    if (!badge || !this.state.user) return;
+    const count = DB.getUnreadCount(this.state.user.id);
+    if (count > 0) { badge.style.display = 'flex'; badge.textContent = count > 99 ? '99+' : count; }
+    else { badge.style.display = 'none'; }
+  },
+
+  notifyNewAssignment(assignmentId) {
+    const a = DB.findOne('assignments', x => x.id === assignmentId);
+    if (!a) return;
+    const students = DB.find('enrollments', e => e.course_id === a.course_id && e.status === 'approved');
+    students.forEach(e => DB.addNotification(e.student_id, '新作业：' + a.title, '作业「' + a.title + '」已发布，请在 ' + (a.due_date ? new Date(a.due_date).toLocaleString() : '截止日期前') + ' 完成提交。', 'assignment', assignmentId));
   },
 
   /* ==================== MODAL / TOAST ==================== */
